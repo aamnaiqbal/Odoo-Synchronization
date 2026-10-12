@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Runs every 5 min as a retry safety net. A new contact also triggers it
+         immediately after the contact is saved. -->
+    <record id="ir_cron_partner_sync" model="ir.cron">
+        <field name="name">Partner sync: push new contacts to remote server</field>
+        <field name="model_id" ref="base.model_res_partner"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_push_partners()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">5</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <!-- Not meant to run on a schedule: the "Fetch Configuration" button triggers it on demand. -->
+    <record id="ir_cron_process_sync_runs" model="ir.cron">
+        <field name="name">Sync: process queued runs</field>
+        <field name="model_id" ref="model_sync_run"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_process_runs()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

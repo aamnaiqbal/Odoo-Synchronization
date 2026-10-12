@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_server_connection_form_partner_sync" model="ir.ui.view">
+        <field name="name">server.connection.form.partner.sync</field>
+        <field name="model">server.connection</field>
+        <field name="inherit_id" ref="server_connection.view_server_connection_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='db']" position="after">
+                <group string="Partner sync">
+                    <field name="sync_partners"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

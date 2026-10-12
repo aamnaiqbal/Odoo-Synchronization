@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Fetch Runs - List View -->
+    <record id="sync_run_view_list" model="ir.ui.view">
+        <field name="name">sync.run.list</field>
+        <field name="model">sync.run</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="state == 'failed'"
+                  decoration-success="state == 'done'">
+                <field name="display_name"/>
+                <field name="connection_id"/>
+                <field name="date_start"/>
+                <field name="date_end"/>
+                <field name="error_count"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Fetch Runs - Form View -->
+    <record id="sync_run_view_form" model="ir.ui.view">
+        <field name="name">sync.run.form</field>
+        <field name="model">sync.run</field>
+        <field name="arch" type="xml">
+            <form create="0">
+
+                <header>
+                    <field name="state"
+                           widget="statusbar"
+                           statusbar_visible="queued,running,done"/>
+                </header>
+
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="connection_id"/>
+                            <field name="error_count"/>
+                        </group>
+
+                        <group>
+                            <field name="date_start"/>
+                            <field name="date_end"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Log">
+                            <field name="line_ids" readonly="1">
+                                <list decoration-danger="level == 'error'"
+                                      decoration-warning="level == 'warning'">
+                                    <field name="level"/>
+                                    <field name="model"/>
+                                    <field name="remote_id"/>
+                                    <field name="message"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+
+            </form>
+        </field>
+    </record>
+
+    <!-- Fetch Runs - Action -->
+    <record id="sync_run_action" model="ir.actions.act_window">
+        <field name="name">Fetch Runs</field>
+        <field name="res_model">sync.run</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_sync_run"
+            name="Fetch Runs"
+            parent="menu_sync_root"
+            action="sync_run_action"
+            sequence="30"/>
+
+</odoo>

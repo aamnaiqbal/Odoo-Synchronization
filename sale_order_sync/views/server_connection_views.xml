@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_server_connection_form_sync" model="ir.ui.view">
+        <field name="name">server.connection.form.sync</field>
+        <field name="model">server.connection</field>
+        <field name="inherit_id" ref="server_connection.view_server_connection_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//group[@string='Last test']" position="before">
+                <group string="Synchronisation">
+                    <field name="sync_sale_orders"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

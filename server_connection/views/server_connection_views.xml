@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_server_connection_list" model="ir.ui.view">
+        <field name="name">server.connection.list</field>
+        <field name="model">server.connection</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="url"/>
+                <field name="db"/>
+                <field name="last_status"/>
+                <field name="last_checked"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_server_connection_form" model="ir.ui.view">
+        <field name="name">server.connection.form</field>
+        <field name="model">server.connection</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_test_connection" type="object"
+                            string="Test Connection" class="btn-primary"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Server">
+                            <field name="name"/>
+                            <field name="url" placeholder="https://your-server.com"/>
+                            <field name="db"/>
+                        </group>
+                        <group string="Credentials">
+                            <field name="login"/>
+                            <field name="api_key" password="True"/>
+                        </group>
+                    </group>
+                    <group string="Last test">
+                        <field name="last_status"/>
+                        <field name="last_checked"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_server_connection" model="ir.actions.act_window">
+        <field name="name">Server Connections</field>
+        <field name="res_model">server.connection</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_server_connection_root" name="Server Connection" sequence="90"
+              groups="base.group_system"/>
+
+    <menuitem id="menu_server_connection"
+              name="Server Connections"
+              parent="menu_server_connection_root"
+              action="action_server_connection"
+              groups="base.group_system"
+              sequence="90"/>
+</odoo>
