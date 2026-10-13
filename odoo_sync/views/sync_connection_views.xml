@@ -11,6 +11,8 @@
                 <field name="database"/>
                 <field name="active"/>
                 <field name="batch_size"/>
+                <field name="config_fetched"/>
+                <field name="pending_count"/>
             </list>
         </field>
     </record>
@@ -27,9 +29,15 @@
                         string="Test Connection"
                         class="btn-primary"
                     />
-                    <button name="action_fetch_configuration" type="object"         class="btn-primary"
+                    <button name="action_fetch_configuration" type="object" class="btn-primary"
                         string="Fetch Configuration from Remote"
                         confirm="Fetch all configured models from the remote?"/>
+                    <button name="action_fetch_and_push" type="object" class="btn-primary"
+                        string="Fetch Configuration &amp; Push Local Records"
+                        confirm="Fetch the configuration from the remote, then push the local records that do not exist there yet?"/>
+                    <button name="action_push_local_records" type="object"
+                        string="Push Local Records"
+                        confirm="Queue every local record that does not exist on the remote yet?"/>
                     <button name="action_load_suggested_models" type="object" string="Load Suggested Models"/>
                 </header>
 
@@ -37,6 +45,9 @@
                     <div class="oe_button_box" name="button_box">
                         <button name="action_view_runs" type="object" class="oe_stat_button" icon="fa-history">
                             <field name="run_count" widget="statinfo" string="Runs"/>
+                        </button>
+                        <button name="action_view_queue" type="object" class="oe_stat_button" icon="fa-upload">
+                            <field name="pending_count" widget="statinfo" string="Pending Jobs"/>
                         </button>
                     </div>
                     <group>
@@ -53,6 +64,12 @@
                     <group string="Worker">
                         <field name="timeout"/>
                         <field name="batch_size"/>
+                    </group>
+
+                    <group string="Local → Remote Push">
+                        <field name="push_requires_fetch"/>
+                        <field name="config_fetched"/>
+                        <field name="last_fetch_date"/>
                     </group>
                 </sheet>
             </form>

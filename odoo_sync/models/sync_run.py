@@ -9,6 +9,7 @@ _logger = logging.getLogger(__name__)
 # your future push hooks must check, so imported records are not pushed back.
 SYNC_CONTEXT = {
     "sync_in_progress": True,
+    "skip_sync": True,
     "tracking_disable": True,
     "mail_create_nolog": True,
     "mail_notrack": True,
@@ -31,6 +32,11 @@ class SyncRun(models.Model):
         default="queued",
         required=True,
         index=True,
+    )
+    push_after_fetch = fields.Boolean(
+        readonly=True,
+        help="When the fetch finishes without errors, queue every local record that "
+        "does not exist on the remote yet and let the queue worker push them.",
     )
     date_start = fields.Datetime(readonly=True)
     date_end = fields.Datetime(readonly=True)
@@ -151,6 +157,33 @@ class SyncRun(models.Model):
             _logger.exception("Sync run %s aborted", self.id)
             self._log("error", _("Run aborted: %s", error))
         self.write({"state": state, "date_end": fields.Datetime.now()})
+        if state == "done":
+            self.connection_id.write(
+                {"config_fetched": True, "last_fetch_date": fields.Datetime.now()}
+            )
+        self._commit()
+        if self.push_after_fetch:
+            self._push_local_records(state)
+
+    def _push_local_records(self, state):
+        """Phase 2: the remote ids are stored now, so local records can be pushed and
+        their relations resolved."""
+        self.ensure_one()
+        if state != "done":
+            self._log(
+                "warning",
+                _("Push skipped: the configuration fetch did not finish without errors."),
+            )
+            self._commit()
+            return
+        try:
+            count = self.connection_id._enqueue_local_records()
+            self._log("info", _("%s local record(s) queued for push.", count))
+            self.env.ref("odoo_sync.ir_cron_sync_queue_worker").sudo()._trigger()
+        except Exception as error:  # noqa: BLE001
+            self.env.cr.rollback()
+            _logger.exception("Sync run %s: queueing local records failed", self.id)
+            self._log("error", _("Queueing local records failed: %s", self._error_message(error)))
         self._commit()
 
     def _sync_model(self, config, cache):

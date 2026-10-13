@@ -25,7 +25,7 @@
         name="Registry"
         parent="menu_sync_root"
         action="action_sync_registry"
-        sequence="30"
+        sequence="50"
     />
 
 </odoo>

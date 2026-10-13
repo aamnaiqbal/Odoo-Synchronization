@@ -13,6 +13,7 @@
                 <field name="date_start"/>
                 <field name="date_end"/>
                 <field name="error_count"/>
+                <field name="push_after_fetch" optional="show"/>
                 <field name="state"/>
             </list>
         </field>
@@ -36,6 +37,7 @@
                         <group>
                             <field name="connection_id"/>
                             <field name="error_count"/>
+                            <field name="push_after_fetch"/>
                         </group>
 
                         <group>

@@ -85,7 +85,7 @@
         name="Queue"
         parent="menu_sync_root"
         action="action_sync_queue"
-        sequence="20"
+        sequence="35"
     />
 
 </odoo>

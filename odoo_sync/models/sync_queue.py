@@ -107,6 +107,7 @@ class SyncQueue(models.Model):
         record_id,
         sync_uuid,
         operation,
+        priority=10,
     ):
         connection = self.env["sync.connection"].sudo().search(
             [("active", "=", True)],
@@ -125,12 +126,8 @@ class SyncQueue(models.Model):
         ], limit=1)
 
         if existing:
-            _logger.warning(
-                "========== EXISTING QUEUE FOUND: id=%s operation=%s state=%s ==========",
-                existing.id,
-                existing.operation,
-                existing.state,
-            )
+            if existing.state == "pending" and existing.priority < priority:
+                existing.priority = priority
             if operation == "create" and existing.operation == "update":
                 existing.write({
                     "operation": "create",
@@ -146,6 +143,7 @@ class SyncQueue(models.Model):
             "sync_uuid": sync_uuid,
             "operation": operation,
             "connection_id": connection.id,
+            "priority": priority,
         })
 
     @api.model
@@ -158,6 +156,14 @@ class SyncQueue(models.Model):
         )
 
         if not connection:
+            return
+
+        if connection.push_requires_fetch and not connection.config_fetched:
+            _logger.info(
+                "Sync queue paused: fetch the configuration from the remote first "
+                "(connection %s).",
+                connection.name,
+            )
             return
 
         batch_size = connection.batch_size or 50
@@ -230,42 +236,12 @@ class SyncQueue(models.Model):
     def _process_job(self):
         self.ensure_one()
 
-        _logger.warning(
-            "========== PROCESSING SYNC JOB =========="
-        )
-        _logger.warning(
-            "Queue ID=%s",
-            self.id,
-        )
-        _logger.warning(
-            "Model=%s",
-            self.model_name,
-        )
-        _logger.warning(
-            "Record ID=%s",
-            self.record_id,
-        )
-        _logger.warning(
-            "Sync UUID=%s",
-            self.sync_uuid,
-        )
-        _logger.warning(
-            "Operation=%s",
-            self.operation,
-        )
-
         if self.operation == "delete":
             payload = self._prepare_delete_payload()
         else:
             payload = self._prepare_record_payload()
 
-        _logger.warning(
-            "========== PAYLOAD BEING SENT TO REMOTE =========="
-        )
-        _logger.warning(
-            "%s",
-            payload,
-        )
+        _logger.debug("[SYNC] queue %s payload: %s", self.id, payload)
 
         result = self.connection_id._json2_call(
             "sync.registry",
@@ -273,45 +249,32 @@ class SyncQueue(models.Model):
             payload,
         )
 
-        _logger.warning(
-            "========== REMOTE RESPONSE =========="
-        )
-        _logger.warning(
-            "%s",
-            result,
-        )
+        _logger.debug("[SYNC] queue %s remote response: %s", self.id, result)
 
         remote_id = result.get("remote_id")
+        warnings = result.get("warnings") or []
+        self._store_remote_id(result.get("operation"), remote_id)
 
         self.write({
             "state": "done",
             "remote_id": remote_id,
             "completed_at": fields.Datetime.now(),
-            "last_error": False,
+            "last_error": ("Warnings:\n" + "\n".join(warnings)) if warnings else False,
         })
 
-    # def _process_job(self):
-    #     self.ensure_one()
-
-    #     if self.operation == "delete":
-    #         payload = self._prepare_delete_payload()
-    #     else:
-    #         payload = self._prepare_record_payload()
-
-    #     result = self.connection_id._json2_call(
-    #         "sync.registry",
-    #         "apply",
-    #         payload,
-    #     )
-
-    #     remote_id = result.get("remote_id")
-
-    #     self.write({
-    #         "state": "done",
-    #         "remote_id": remote_id,
-    #         "completed_at": fields.Datetime.now(),
-    #         "last_error": False,
-    #     })
+    def _store_remote_id(self, operation, remote_id):
+        """Keep local id <-> remote id, so later pushes can resolve relations to this
+        record exactly like they do for the records fetched from the remote."""
+        self.ensure_one()
+        Map = self.env["sync.record.map"].sudo()
+        if operation == "delete":
+            Map.search([
+                ("connection_id", "=", self.connection_id.id),
+                ("model", "=", self.model_name),
+                ("local_id", "=", self.record_id),
+            ]).unlink()
+        elif remote_id and self.env[self.model_name].browse(self.record_id).exists():
+            Map._set(self.connection_id, self.model_name, self.record_id, remote_id)
 
     def _prepare_delete_payload(self):
         return {
@@ -326,13 +289,17 @@ class SyncQueue(models.Model):
         if not record.exists():
             return self._prepare_delete_payload()
 
-        values = record._sync_prepare_values()
+        values = record._sync_prepare_values(self.connection_id)
+        remote_id = self.env["sync.record.map"].sudo()._get_remote_id(
+            self.connection_id, self.model_name, self.record_id
+        )
 
         return {
             "model_name": self.model_name,
             "sync_uuid": self.sync_uuid,
             "operation": self.operation,
             "values": values,
+            "remote_id": remote_id or False,
         }
 
     def _schedule_retry(self, error):

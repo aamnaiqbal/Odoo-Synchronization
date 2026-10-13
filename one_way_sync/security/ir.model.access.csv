@@ -1,4 +1,0 @@
-id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_sync_connection_manager,sync.connection manager,model_sync_connection,base.group_system,1,1,1,1
-access_sync_queue_manager,sync.queue manager,model_sync_queue,base.group_system,1,1,1,1
-access_sync_registry_manager,sync.registry manager,model_sync_registry,base.group_system,1,1,1,1
