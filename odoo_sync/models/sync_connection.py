@@ -154,25 +154,6 @@ class SyncConnection(models.Model):
         self.ensure_one()
         return self._create_fetch_run(push_after_fetch=True)
 
-    def action_push_local_records(self):
-        self.ensure_one()
-        if self.push_requires_fetch and not self.config_fetched:
-            raise UserError(
-                _("Fetch the configuration from the remote first (or uncheck 'Fetch Before Push').")
-            )
-        count = self._enqueue_local_records()
-        self.env.ref("odoo_sync.ir_cron_sync_queue_worker").sudo()._trigger()
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": _("Local records queued"),
-                "message": _("%s record(s) were added to the push queue.", count),
-                "type": "success",
-                "sticky": False,
-            },
-        }
-
     def action_view_runs(self):
         self.ensure_one()
         return {

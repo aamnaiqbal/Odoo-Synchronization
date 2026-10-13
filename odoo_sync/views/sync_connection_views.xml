@@ -35,9 +35,6 @@
                     <button name="action_fetch_and_push" type="object" class="btn-primary"
                         string="Fetch Configuration &amp; Push Local Records"
                         confirm="Fetch the configuration from the remote, then push the local records that do not exist there yet?"/>
-                    <button name="action_push_local_records" type="object"
-                        string="Push Local Records"
-                        confirm="Queue every local record that does not exist on the remote yet?"/>
                     <button name="action_load_suggested_models" type="object" string="Load Suggested Models"/>
                 </header>
 
