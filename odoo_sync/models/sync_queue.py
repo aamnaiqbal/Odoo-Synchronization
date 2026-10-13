@@ -277,10 +277,14 @@ class SyncQueue(models.Model):
             Map._set(self.connection_id, self.model_name, self.record_id, remote_id)
 
     def _prepare_delete_payload(self):
+        remote_id = self.env["sync.record.map"].sudo()._get_remote_id(
+            self.connection_id, self.model_name, self.record_id
+        )
         return {
             "model_name": self.model_name,
             "sync_uuid": self.sync_uuid,
             "operation": "delete",
+            "remote_id": remote_id or False,
         }
 
     def _prepare_record_payload(self):

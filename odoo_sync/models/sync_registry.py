@@ -153,7 +153,8 @@ class SyncRegistry(models.Model):
         )
 
         if operation == "delete":
-            return self._apply_delete(registry, model_name, sync_uuid)
+            return self._apply_delete(registry, model_name, sync_uuid, remote_id)
+
 
         warnings = []
         values = self._resolve_relations(values or {}, warnings)
@@ -203,16 +204,16 @@ class SyncRegistry(models.Model):
             "warnings": warnings,
         }
 
-    def _apply_delete(self, registry, model_name, sync_uuid):
-        if not registry:
-            return {"success": True, "remote_id": False, "operation": "delete"}
-
-        record = self.env[model_name].browse(registry.remote_id)
-        if record.exists():
-            record.with_context(skip_sync=True).unlink()
-        registry.unlink()
+    def _apply_delete(self, registry, model_name, sync_uuid, remote_id=None):
+        target = registry.remote_id if registry else remote_id
+        if target:
+            record = self.env[model_name].browse(int(target))
+            if record.exists():
+                record.with_context(skip_sync=True).unlink()
+        if registry:
+            registry.unlink()
         return {"success": True, "remote_id": False, "operation": "delete"}
-
+    
     # ------------------------------------------------------------------
     # Relation resolution (key sent by the local side -> id on THIS server)
     # ------------------------------------------------------------------
