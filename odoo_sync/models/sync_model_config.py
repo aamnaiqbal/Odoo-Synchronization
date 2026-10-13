@@ -132,7 +132,7 @@ class SyncModelConfig(models.Model):
         for name, field in Model._fields.items():
             if name in excluded or field.type in EXCLUDED_TYPES:
                 continue
-            if not field.store or (field.compute and not field.inverse):
+            if not field.store or (field.compute and not field.inverse and field.readonly):
                 continue
             if field.type == "binary" and not self.include_binary:
                 continue

@@ -65,7 +65,7 @@ class SyncRegistry(models.Model):
                 "relation": field.comodel_name or False,
                 "store": field.store,
                 # writable = plain stored field, or computed field with an inverse
-                "writable": (not field.compute) or bool(field.inverse),
+                "writable": (not field.compute) or bool(field.inverse) or (not field.readonly),
                 "required": field.required,
             }
             for name, field in Model._fields.items()
@@ -94,8 +94,8 @@ class SyncRegistry(models.Model):
         return {"records": rows}
 
     @api.model
-    def get_xmlids(self, model_name, ids):
+    def get_xmlids(self, model_name, record_ids):
         """Return {str(id): 'module.name'} for the given ids."""
         self._get_sync_model(model_name)
-        mapping = self._get_xmlid_map(model_name, list(ids))
+        mapping = self._get_xmlid_map(model_name, list(record_ids))
         return {str(res_id): xmlid for res_id, xmlid in mapping.items()}

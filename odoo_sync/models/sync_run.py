@@ -665,7 +665,7 @@ class SyncRun(models.Model):
         if key not in cache["xmlids"]:
             try:
                 result = self.connection_id._json2_call(
-                    "sync.registry", "get_xmlids", {"model_name": comodel, "ids": [remote_id]}
+                    "sync.registry", "get_xmlids", {"model_name": comodel, "record_ids": [remote_id]}
                 )
                 cache["xmlids"][key] = result.get(str(remote_id)) or False
             except Exception:  # noqa: BLE001 - e.g. no access to that model remotely
