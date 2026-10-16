@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Models to Sync - List View -->
+    <record id="sync_model_config_view_list" model="ir.ui.view">
+        <field name="name">sync.model.config.list</field>
+        <field name="model">sync.model.config</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="sequence" widget="handle"/>
+                <field name="model_id"/>
+                 <field name="mode"/>
+                <field name="model_name" optional="hide"/>
+                <field name="remote_domain"/>
+                <field name="match_fields"/>
+                <field name="update_existing"/>
+                <field name="include_binary"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Models to Sync - Form View -->
+    <record id="sync_model_config_view_form" model="ir.ui.view">
+        <field name="name">sync.model.config.form</field>
+        <field name="model">sync.model.config</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="model_id"/>
+                             <field name="mode"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+
+                        <group>
+                            <field name="remote_domain"/>
+                            <field name="match_fields"/>
+                            <field name="excluded_fields"/>
+                            <field name="update_existing"/>
+                            <field name="include_binary"/>
+                        </group>
+                    </group>
+
+                    <field name="note" placeholder="Notes..."/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Models to Sync - Action -->
+    <record id="sync_model_config_action" model="ir.actions.act_window">
+        <field name="name">Models to Sync</field>
+        <field name="res_model">sync.model.config</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_sync_model_config"
+            name="Models to Sync"
+            parent="menu_sync_root"
+            action="sync_model_config_action"
+            sequence="20"/>
+
+</odoo>

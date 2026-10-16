@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_sync_connection_list" model="ir.ui.view">
+        <field name="name">sync.connection.list</field>
+        <field name="model">sync.connection</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="base_url"/>
+                <field name="database"/>
+                <field name="active"/>
+                <field name="batch_size"/>
+                <field name="config_fetched"/>
+                <field name="pending_count"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_sync_connection_form" model="ir.ui.view">
+        <field name="name">sync.connection.form</field>
+        <field name="model">sync.connection</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button
+                        name="action_test_connection"
+                        type="object"
+                        string="Test Connection"
+                        class="btn-primary"
+                    />
+                    <button name="action_fetch_configuration" type="object" class="btn-primary"
+                        string="Fetch Configuration from Remote"
+                        confirm="Fetch all configured models from the remote?"/>
+                    <button name="action_fetch_and_push" type="object" class="btn-primary"
+                        string="Fetch Configuration &amp; Push Local Records"
+                        confirm="Fetch the configuration from the remote, then push the local records that do not exist there yet?"/>
+                    <button name="action_load_suggested_models" type="object" string="Load Suggested Models"/>
+                </header>
+
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_runs" type="object" class="oe_stat_button" icon="fa-history">
+                            <field name="run_count" widget="statinfo" string="Runs"/>
+                        </button>
+                        <button name="action_view_queue" type="object" class="oe_stat_button" icon="fa-upload">
+                            <field name="pending_count" widget="statinfo" string="Pending Jobs"/>
+                        </button>
+                    </div>
+                    <group>
+                        <field name="name"/>
+                        <field name="active"/>
+                    </group>
+
+                    <group string="Remote Odoo">
+                        <field name="base_url"/>
+                        <field name="database"/>
+                        <field name="api_key" password="True"/>
+                    </group>
+
+                    <group string="Worker">
+                        <field name="timeout"/>
+                        <field name="batch_size"/>
+                    </group>
+
+                    <group string="Local → Remote Push">
+                        <field name="push_requires_fetch"/>
+                        <field name="config_fetched"/>
+                        <field name="last_fetch_date"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_sync_connection" model="ir.actions.act_window">
+        <field name="name">Sync Connections</field>
+        <field name="res_model">sync.connection</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem
+        id="menu_sync_root"
+        name="Synchronization"
+        sequence="100"
+    />
+
+    <menuitem
+        id="menu_sync_connection"
+        name="Connections"
+        parent="menu_sync_root"
+        action="action_sync_connection"
+        sequence="10"
+    />
+
+</odoo>
