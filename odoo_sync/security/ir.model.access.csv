@@ -2,8 +2,5 @@ id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_sync_registry_user,sync.registry user,model_sync_registry,base.group_user,1,0,0,0
 access_sync_registry_manager,sync.registry manager,model_sync_registry,base.group_system,1,1,1,1
 access_sync_connection_admin,sync.connection admin,model_sync_connection,base.group_system,1,1,1,1
-access_sync_model_config_admin,sync.model.config admin,model_sync_model_config,base.group_system,1,1,1,1
 access_sync_record_map_admin,sync.record.map admin,model_sync_record_map,base.group_system,1,1,1,1
-access_sync_run_admin,sync.run admin,model_sync_run,base.group_system,1,1,1,1
-access_sync_run_line_admin,sync.run.line admin,model_sync_run_line,base.group_system,1,1,1,1
 access_sync_queue_manager,sync.queue manager,model_sync_queue,base.group_system,1,1,1,1

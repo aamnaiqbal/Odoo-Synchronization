@@ -11,8 +11,6 @@
                 <field name="model"/>
                 <field name="local_id"/>
                 <field name="remote_id"/>
-                <field name="remote_xmlid"/>
-                <field name="remote_write_date"/>
                 <field name="last_synced"/>
             </list>
         </field>
@@ -27,7 +25,6 @@
                 <field name="model"/>
                 <field name="local_id"/>
                 <field name="remote_id"/>
-                <field name="remote_xmlid"/>
 
                 <group>
                     <filter name="group_model"

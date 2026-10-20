@@ -148,8 +148,6 @@ class SyncQueue(models.Model):
 
     @api.model
     def _cron_process_queue(self):
-        batch_size = 50
-
         connection = self.env["sync.connection"].sudo().search(
             [("active", "=", True)],
             limit=1,
@@ -158,36 +156,31 @@ class SyncQueue(models.Model):
         if not connection:
             return
 
-        if connection.push_requires_fetch and not connection.config_fetched:
+        # The baseline tells the records of the imported database apart from the new
+        # ones; relations cannot be resolved without it.
+        if not connection.baseline_date:
             _logger.info(
-                "Sync queue paused: fetch the configuration from the remote first "
-                "(connection %s).",
+                "Sync queue paused: capture the baseline on connection %s first.",
                 connection.name,
             )
             return
 
-        batch_size = connection.batch_size or 50
+        jobs = self._get_jobs(connection.batch_size or 50)
 
-        for job in self._get_jobs(batch_size):
+        for index, job in enumerate(jobs):
             try:
                 job._process_job()
             except requests.RequestException as error:
-                _logger.warning(
-                    "Remote server unavailable: %s",
-                    error,
-                )
-
-                job._schedule_retry(str(error))
-
-                # Stop this worker because the server is unavailable.
+                # Remote unreachable (internet outage, server restarting): expected
+                # for an offline-first setup. The job stays pending without using up
+                # a retry, the jobs not tried yet are handed back and the batch stops.
+                _logger.warning("Remote server unavailable: %s", error)
+                job._defer(str(error))
+                jobs[index + 1:]._release()
+                self.env.cr.commit()
                 break
-
             except Exception as error:
-                _logger.exception(
-                    "Synchronization failed for queue %s",
-                    job.id,
-                )
-
+                _logger.exception("Synchronization failed for queue %s", job.id)
                 job._schedule_retry(str(error))
 
             self.env.cr.commit()
@@ -263,8 +256,8 @@ class SyncQueue(models.Model):
         })
 
     def _store_remote_id(self, operation, remote_id):
-        """Keep local id <-> remote id, so later pushes can resolve relations to this
-        record exactly like they do for the records fetched from the remote."""
+        """Keep local id <-> remote id, so later pushes can resolve the relations that
+        point to this record (see sync.record.map)."""
         self.ensure_one()
         Map = self.env["sync.record.map"].sudo()
         if operation == "delete":
@@ -333,6 +326,21 @@ class SyncQueue(models.Model):
             "retry_count": retry_count,
             "next_retry_at": next_retry,
             "last_error": error[:5000],
+        })
+
+    def _defer(self, error, delay_minutes=1):
+        """Back to pending WITHOUT counting a failed attempt (remote unreachable)."""
+        self.write({
+            "state": "pending",
+            "next_retry_at": fields.Datetime.now() + timedelta(minutes=delay_minutes),
+            "last_error": error[:5000],
+        })
+
+    def _release(self):
+        """Give jobs back to the queue untouched (picked up by the worker, not tried)."""
+        self.write({
+            "state": "pending",
+            "started_at": False,
         })
 
     def action_retry(self):

@@ -7,8 +7,26 @@ _logger = logging.getLogger(__name__)
 
 
 class SyncMixin(models.AbstractModel):
+    """Push the records created locally to the remote Odoo (local -> remote).
+
+    Inherit it together with the model to synchronize (see res_partner.py).
+
+    * every new record gets a `sync_uuid` and a job in `sync.queue`;
+    * the job is processed by the queue cron, which sends the record to the remote
+      (`sync.registry.apply`) and stores the id the record received there
+      (`sync.record.map`);
+    * relational fields are translated to remote ids when the payload is built
+      (see `_sync_get_relation_key`).
+    """
+
     _name = "sync.mixin"
     _description = "Synchronization Mixin"
+
+    # Operations queued for the push. Phase 1 pushes the created records only.
+    # "update" and "delete" are already implemented (queue job, payload, remote side)
+    # but switched off until they are rolled out: enable them per model by
+    # overriding this attribute, e.g. _sync_operations = ("create", "update", "delete").
+    _sync_operations = ("create",)
 
     sync_uuid = fields.Char(
         string="Sync UUID",
@@ -21,10 +39,12 @@ class SyncMixin(models.AbstractModel):
     # ORM hooks
     # ------------------------------------------------------------------
     def _sync_is_disabled(self):
-        """No job is queued for writes done by the configuration fetch
-        (`sync_in_progress`) or by the sync code itself (`skip_sync`)."""
-        ctx = self.env.context
-        return bool(ctx.get("skip_sync") or ctx.get("sync_in_progress"))
+        """`skip_sync` is set by the sync code itself (e.g. the remote applying a
+        pushed record) so that its own writes are never queued."""
+        return bool(self.env.context.get("skip_sync"))
+
+    def _sync_should_queue(self, operation):
+        return operation in self._sync_operations and not self._sync_is_disabled()
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -34,7 +54,7 @@ class SyncMixin(models.AbstractModel):
 
         records = super().create(vals_list)
 
-        if not self._sync_is_disabled():
+        if self._sync_should_queue("create"):
             records._create_sync_queue("create")
 
         return records
@@ -42,13 +62,14 @@ class SyncMixin(models.AbstractModel):
     def write(self, vals):
         result = super().write(vals)
 
-        if not self._sync_is_disabled():
+        if self._sync_should_queue("update"):
             self._create_sync_queue("update")
 
         return result
 
     def unlink(self):
-        if not self._sync_is_disabled():
+        # Queued before the deletion: the job needs the id and the sync_uuid.
+        if self._sync_should_queue("delete"):
             self._create_sync_queue("delete")
 
         return super().unlink()
@@ -57,6 +78,7 @@ class SyncMixin(models.AbstractModel):
         SyncQueue = self.env["sync.queue"].sudo()
 
         for record in self:
+            # Records that came with the imported database have no uuid yet.
             if not record.sync_uuid:
                 record.with_context(skip_sync=True).write({"sync_uuid": str(uuid.uuid4())})
 
@@ -80,6 +102,8 @@ class SyncMixin(models.AbstractModel):
         return self.env["sync.connection"].sudo().search([("active", "=", True)], limit=1)
 
     def _sync_prepare_values(self, connection=None):
+        """Build the values sent to the remote. Relational values are replaced by
+        relation keys (see `_sync_get_relation_key`) that the remote resolves."""
         self.ensure_one()
         connection = connection or self._sync_get_connection()
 
@@ -124,8 +148,8 @@ class SyncMixin(models.AbstractModel):
                 if key:
                     values[field_name] = key
                 else:
-                    _logger.debug(
-                        "[SYNC] %s.%s -> %s(%s) has no remote reference, skipped",
+                    _logger.warning(
+                        "[SYNC] %s.%s -> %s(%s) cannot be identified on the remote, skipped",
                         self._name, field_name, value._name, value.id,
                     )
 
@@ -135,6 +159,11 @@ class SyncMixin(models.AbstractModel):
                     key = self._sync_get_relation_key(field_name, record, connection)
                     if key:
                         keys.append(key)
+                    else:
+                        _logger.warning(
+                            "[SYNC] %s.%s -> %s(%s) cannot be identified on the remote, skipped",
+                            self._name, field_name, record._name, record.id,
+                        )
                 values[field_name] = keys
 
             elif field.type == "date":
@@ -159,10 +188,18 @@ class SyncMixin(models.AbstractModel):
     def _sync_get_relation_key(self, field_name, record=None, connection=None):
         """Describe a related record so the remote can find it.
 
-        The key carries every hint available (the remote resolves them in this order):
-          - remote_id: from sync.record.map (record fetched from / pushed to the remote)
-          - xmlid:     standard data that exists on both sides (countries, companies...)
-          - sync_uuid: record handled by the push registry
+        The hints are tried in this order (the remote resolves them in the same
+        order, see `sync.registry._resolve_relation_key`):
+
+          1. remote_id - the id of the record on the remote. Taken from
+                         sync.record.map (record created locally and already pushed)
+                         or equal to the local id (record that came with the
+                         imported database). When it is known nothing else is sent.
+          2. xmlid     - standard data present on both sides, e.g. created by a
+                         module installed after the import.
+          3. sync_uuid - record created locally that is not on the remote yet. It is
+                         queued with a higher priority and the job that needs it is
+                         retried until it has been pushed.
 
         Returns False when the record cannot be identified on the remote at all."""
         if record is None:
@@ -172,25 +209,29 @@ class SyncMixin(models.AbstractModel):
             return False
 
         connection = connection or self._sync_get_connection()
-        key = {"model": record._name}
 
+        # 1. id on the remote
         remote_id = False
         if connection:
             remote_id = (
                 self.env["sync.record.map"].sudo()._get_remote_id(connection, record._name, record.id)
             )
         if remote_id:
-            key["remote_id"] = remote_id
+            return {"model": record._name, "remote_id": remote_id}
 
+        key = {"model": record._name}
+
+        # 2. xmlid of standard data
         xmlid = record.get_external_id().get(record.id)
         if xmlid and not xmlid.startswith("__export__."):
             key["xmlid"] = xmlid
 
+        # 3. sync_uuid of a record that still has to be pushed
         if "sync_uuid" in record._fields:
             if not record.sync_uuid:
                 record.with_context(skip_sync=True).write({"sync_uuid": str(uuid.uuid4())})
             key["sync_uuid"] = record.sync_uuid
-            if not remote_id and "xmlid" not in key:
+            if "xmlid" not in key:
                 self._sync_ensure_dependency_queued(record)
 
         if len(key) == 1:

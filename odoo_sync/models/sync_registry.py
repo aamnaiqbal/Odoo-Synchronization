@@ -1,19 +1,22 @@
 import logging
-from datetime import date, datetime
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-MAX_BATCH = 500
-
 
 class SyncRegistry(models.Model):
-    """REMOTE side. Public methods are callable through /json/2/sync.registry/<method>.
+    """REMOTE side of the push.
+
+    Public methods are callable through /json/2/sync.registry/<method>.
     Methods starting with an underscore are NOT exposed by JSON-2.
 
-    Also stores the sync_uuid -> remote id link of the records pushed from a local Odoo."""
+    Besides applying the pushed records, it stores the sync_uuid -> remote id link of
+    every record created by a push. That makes a retried push idempotent: if the
+    remote created the record but the local side never received the answer, the next
+    attempt finds the row and updates the record instead of creating a duplicate.
+    """
 
     _name = "sync.registry"
     _description = "Synchronization Registry"
@@ -46,81 +49,12 @@ class SyncRegistry(models.Model):
             raise UserError(_("Model %s does not exist on this server.", model_name))
         return self.env[model_name]
 
-    @api.model
-    def _serialize(self, value):
-        if isinstance(value, datetime):  # check before date (it is a subclass)
-            return fields.Datetime.to_string(value)
-        if isinstance(value, date):
-            return fields.Date.to_string(value)
-        if isinstance(value, bytes):
-            return value.decode()
-        return value
-
-    @api.model
-    def _get_xmlid_map(self, model_name, ids):
-        data = self.env["ir.model.data"].sudo().search_read(
-            [
-                ("model", "=", model_name),
-                ("res_id", "in", ids),
-                ("module", "!=", "__export__"),
-            ],
-            ["res_id", "module", "name"],
-        )
-        return {d["res_id"]: f"{d['module']}.{d['name']}" for d in data}
-
-    # ------------------------------------------------------------------
-    # API used by the local side: configuration fetch
-    # ------------------------------------------------------------------
-    @api.model
-    def get_fields(self, model_name):
-        """Describe the fields of a model so the local side can build its field list."""
-        Model = self._get_sync_model(model_name)
-        return {
-            name: {
-                "type": field.type,
-                "relation": field.comodel_name or False,
-                "store": field.store,
-                # writable = plain stored field, or computed field with an inverse
-                "writable": (not field.compute) or bool(field.inverse) or (not field.readonly),
-                "required": field.required,
-            }
-            for name, field in Model._fields.items()
-        }
-
-    @api.model
-    def fetch_batch(self, model_name, field_names, domain=None, after_id=0, limit=50):
-        """Keyset-paginated read. Relational fields come back as plain ids
-        (load=False) and every row carries its xmlid (if any) in `_sync_xmlid`."""
-        Model = self._get_sync_model(model_name).with_context(active_test=False)
-        limit = max(1, min(int(limit), MAX_BATCH))
-        domain = list(domain or []) + [("id", ">", int(after_id))]
-        records = Model.search(domain, order="id asc", limit=limit)
-
-        accessible = set(Model.fields_get(list(field_names), attributes=["type"]))
-        to_read = [name for name in field_names if name in accessible]
-        if "write_date" not in to_read:
-            to_read.append("write_date")
-
-        rows = records.read(to_read, load=False)
-        xmlids = self._get_xmlid_map(model_name, records.ids)
-        for row in rows:
-            for key, value in list(row.items()):
-                row[key] = self._serialize(value)
-            row["_sync_xmlid"] = xmlids.get(row["id"], False)
-        return {"records": rows}
-
-    @api.model
-    def get_xmlids(self, model_name, record_ids):
-        """Return {str(id): 'module.name'} for the given ids."""
-        self._get_sync_model(model_name)
-        mapping = self._get_xmlid_map(model_name, list(record_ids))
-        return {str(res_id): xmlid for res_id, xmlid in mapping.items()}
-
     # ------------------------------------------------------------------
     # API used by the local side: push
     # ------------------------------------------------------------------
     @api.model
     def get_remote_id(self, model_name, sync_key):
+        """Id on this server of the record pushed with this sync_uuid (False if none)."""
         registry = self.search(
             [
                 ("model_name", "=", model_name),
@@ -135,9 +69,10 @@ class SyncRegistry(models.Model):
     def apply(self, model_name, sync_uuid, operation, values=None, remote_id=None):
         """Create / update / delete one record pushed by the local Odoo.
 
-        `remote_id` is the id this record already has on this server (known by the
-        local side because the record was fetched from here, or pushed before). It
-        lets an update reach the right record even if no registry row exists yet."""
+        `remote_id` is the id this record already has on this server, as far as the
+        local side knows it (the record came with the imported database, or was pushed
+        before). It lets an update reach the right record even if no registry row
+        exists for it."""
         if not model_name:
             raise UserError(_("Model name is required."))
         if not sync_uuid:
@@ -145,7 +80,8 @@ class SyncRegistry(models.Model):
 
         Model = self._get_sync_model(model_name)
         _logger.debug(
-            "[SYNC APPLY] model=%s uuid=%s op=%s remote_id=%s", model_name, sync_uuid, operation, remote_id
+            "[SYNC APPLY] model=%s uuid=%s op=%s remote_id=%s",
+            model_name, sync_uuid, operation, remote_id,
         )
 
         registry = self.search(
@@ -155,9 +91,9 @@ class SyncRegistry(models.Model):
         if operation == "delete":
             return self._apply_delete(registry, model_name, sync_uuid, remote_id)
 
-
         warnings = []
         values = self._resolve_relations(values or {}, warnings)
+        # skip_sync: what is applied here must never be queued again on this server.
         Model = Model.with_context(skip_sync=True)
 
         record = Model.browse()
@@ -173,14 +109,7 @@ class SyncRegistry(models.Model):
             if values:
                 record.write(values)
             if not registry:
-                self.create(
-                    {
-                        "name": f"{model_name}:{sync_uuid}",
-                        "model_name": model_name,
-                        "sync_key": sync_uuid,
-                        "remote_id": record.id,
-                    }
-                )
+                self._create_registry_row(model_name, sync_uuid, record.id)
             return {
                 "success": True,
                 "remote_id": record.id,
@@ -189,20 +118,24 @@ class SyncRegistry(models.Model):
             }
 
         record = Model.create(values)
-        self.create(
-            {
-                "name": f"{model_name}:{sync_uuid}",
-                "model_name": model_name,
-                "sync_key": sync_uuid,
-                "remote_id": record.id,
-            }
-        )
+        self._create_registry_row(model_name, sync_uuid, record.id)
         return {
             "success": True,
             "remote_id": record.id,
             "operation": "create",
             "warnings": warnings,
         }
+
+    @api.model
+    def _create_registry_row(self, model_name, sync_uuid, remote_id):
+        return self.create(
+            {
+                "name": f"{model_name}:{sync_uuid}",
+                "model_name": model_name,
+                "sync_key": sync_uuid,
+                "remote_id": remote_id,
+            }
+        )
 
     def _apply_delete(self, registry, model_name, sync_uuid, remote_id=None):
         target = registry.remote_id if registry else remote_id
@@ -213,7 +146,7 @@ class SyncRegistry(models.Model):
         if registry:
             registry.unlink()
         return {"success": True, "remote_id": False, "operation": "delete"}
-    
+
     # ------------------------------------------------------------------
     # Relation resolution (key sent by the local side -> id on THIS server)
     # ------------------------------------------------------------------
@@ -225,13 +158,12 @@ class SyncRegistry(models.Model):
     def _resolve_relation_key(self, key):
         """Return the id on this server for a relation key, or False.
 
-        The local side sends every hint it has; they are tried from the most to the
-        least reliable:
-          1. remote_id  - the remote id stored in the local sync.record.map
-                          (record fetched from here, or pushed before)
-          2. xmlid      - standard data (countries, companies, ...) that has the same
-                          xmlid on both sides
-          3. sync_uuid  - record pushed earlier by the registry (sync.registry)
+        The local side sends the hints it has (see sync.mixin._sync_get_relation_key);
+        they are tried from the most to the least reliable:
+          1. remote_id  - id of the record on this server: the record came with the
+                          imported database (same id) or was pushed before
+          2. xmlid      - standard data that has the same xmlid on both sides
+          3. sync_uuid  - record created locally and pushed earlier (registry row)
         """
         model = key.get("model")
         if not model or model not in self.env:
@@ -274,12 +206,14 @@ class SyncRegistry(models.Model):
         warnings = warnings if warnings is not None else []
         result = {}
         for field_name, value in values.items():
+            # many2one
             if self._is_relation_key(value):
                 remote_id = self._resolve_one_key(field_name, value, warnings)
                 if remote_id:
                     result[field_name] = remote_id
                 continue
 
+            # many2many
             if isinstance(value, list):
                 resolved_list = []
                 for item in value:

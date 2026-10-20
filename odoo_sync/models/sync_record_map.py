@@ -2,8 +2,14 @@ from odoo import api, fields, models
 
 
 class SyncRecordMap(models.Model):
-    """remote id <-> local id for every record fetched from the remote.
-    This is what the future local -> remote push will use."""
+    """local id <-> remote id of the records created locally and pushed to the remote.
+
+    This is what resolves the relational fields of the records pushed later.
+
+    Records that came with the imported database are NOT stored here: they have the
+    same id on both sides, which is known from the connection baseline
+    (see `sync.connection._get_baseline_max_id`).
+    """
 
     _name = "sync.record.map"
     _description = "Remote / Local Record Mapping"
@@ -16,10 +22,10 @@ class SyncRecordMap(models.Model):
     model = fields.Char(required=True, index=True)
     local_id = fields.Integer(required=True, index=True)
     remote_id = fields.Integer(required=True, index=True)
-    remote_xmlid = fields.Char()
+    # Reserved for the future two-way synchronization: not filled by the one-way push.
     remote_write_date = fields.Datetime(
-        help="write_date of the remote record when it was last fetched. "
-        "Used to skip unchanged records and, later, to detect conflicts."
+        help="write_date of the remote record when it was last synchronized. "
+        "Will be used to detect conflicts once the synchronization is two-way."
     )
     last_synced = fields.Datetime(default=fields.Datetime.now)
 
@@ -33,33 +39,13 @@ class SyncRecordMap(models.Model):
     )
 
     @api.model
-    def _load_by_remote(self, connection, model, remote_ids):
-        maps = self.search(
-            [
-                ("connection_id", "=", connection.id),
-                ("model", "=", model),
-                ("remote_id", "in", remote_ids),
-            ]
-        )
-        return {m.remote_id: m for m in maps}
-
-    @api.model
-    def _get_local_id(self, connection, model, remote_id):
-        mapping = self.search(
-            [
-                ("connection_id", "=", connection.id),
-                ("model", "=", model),
-                ("remote_id", "=", remote_id),
-            ],
-            limit=1,
-        )
-        if mapping and self.env[model].browse(mapping.local_id).exists():
-            return mapping.local_id
-        return False
-
-    @api.model
     def _get_remote_id(self, connection, model, local_id):
-        """For the future push: which remote record does this local record map to?"""
+        """Which record of the remote does this local record correspond to?
+
+        1. a mapping row           -> record created locally and pushed
+        2. id <= baseline of model -> record that came with the imported database,
+                                      it has the same id on the remote
+        3. otherwise False         -> created locally, not pushed yet"""
         mapping = self.search(
             [
                 ("connection_id", "=", connection.id),
@@ -68,10 +54,34 @@ class SyncRecordMap(models.Model):
             ],
             limit=1,
         )
-        return mapping.remote_id or False
+        if mapping:
+            return mapping.remote_id
+        if local_id <= connection._get_baseline_max_id(model):
+            return local_id
+        return False
 
     @api.model
-    def _set(self, connection, model, local_id, remote_id, xmlid=False, remote_write_date=False):
+    def _get_local_id(self, connection, model, remote_id):
+        """Reverse of `_get_remote_id`. Not used by the one-way push; kept for the
+        future remote -> local direction."""
+        mapping = self.search(
+            [
+                ("connection_id", "=", connection.id),
+                ("model", "=", model),
+                ("remote_id", "=", remote_id),
+            ],
+            limit=1,
+        )
+        local_id = mapping.local_id if mapping else (
+            remote_id if remote_id <= connection._get_baseline_max_id(model) else False
+        )
+        if local_id and self.env[model].browse(local_id).exists():
+            return local_id
+        return False
+
+    @api.model
+    def _set(self, connection, model, local_id, remote_id, remote_write_date=False):
+        """Create or update the mapping of one record."""
         base = [("connection_id", "=", connection.id), ("model", "=", model)]
         mapping = self.search(base + [("remote_id", "=", remote_id)], limit=1) or self.search(
             base + [("local_id", "=", local_id)], limit=1
@@ -81,7 +91,6 @@ class SyncRecordMap(models.Model):
             "model": model,
             "local_id": local_id,
             "remote_id": remote_id,
-            "remote_xmlid": xmlid or False,
             "remote_write_date": remote_write_date or False,
             "last_synced": fields.Datetime.now(),
         }

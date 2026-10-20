@@ -1,18 +1,18 @@
 {
     "name": "Odoo Synchronization",
-    "version": "19.0.1.1.0",
+    "version": "19.0.2.0.0",
     "category": "Technical",
-    "summary": "Fetch configuration from a remote Odoo, then push local records to it",
+    "summary": "One-way push of locally created records to a remote Odoo "
+    "(local runs on a copy of the remote database)",
     "depends": [
         "base",
         "web",
+        "sale"
     ],
     "data": [
         "security/ir.model.access.csv",
         "data/ir_cron_data.xml",
         "views/sync_connection_views.xml",
-        "views/sync_model_config_views.xml",
-        "views/sync_run_views.xml",
         "views/sync_queue_views.xml",
         "views/sync_record_map_views.xml",
         "views/sync_registry_views.xml",
