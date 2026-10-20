@@ -10,10 +10,11 @@ class SaleOrder(models.Model):
 
     _sync_enabled = True
 
+
 class SaleOrderLine(models.Model):
     
     _inherit = [
-        "sale.order",
+        "sale.order.line",
         "sync.mixin",
     ]
 
