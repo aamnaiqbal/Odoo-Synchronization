@@ -16,3 +16,12 @@ class ResPartner(models.Model):
     ]
 
     _sync_enabled = True
+
+class ResPartnerCategory(models.Model):
+    
+    _inherit = [
+        "res.partner.category",
+        "sync.mixin",
+    ]
+
+    _sync_enabled = True
