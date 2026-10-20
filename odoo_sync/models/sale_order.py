@@ -9,3 +9,12 @@ class SaleOrder(models.Model):
     ]
 
     _sync_enabled = True
+
+class SaleOrderLine(models.Model):
+    
+    _inherit = [
+        "sale.order",
+        "sync.mixin",
+    ]
+
+    _sync_enabled = True
