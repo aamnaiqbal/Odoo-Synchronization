@@ -117,16 +117,18 @@ class SyncQueue(models.Model):
         if not connection:
             return False
 
-        # Avoid duplicate pending jobs for the same record.
+        # One pending job per record is enough: its payload is built when it runs, so
+        # it carries every change made until then. A job already being processed is
+        # not reused, a later change needs a job of its own.
         existing = self.search([
             ("model_name", "=", model_name),
             ("record_id", "=", record_id),
             ("sync_uuid", "=", sync_uuid),
-            ("state", "in", ["pending", "processing"]),
+            ("state", "=", "pending"),
         ], limit=1)
 
         if existing:
-            if existing.state == "pending" and existing.priority < priority:
+            if existing.priority < priority:
                 existing.priority = priority
             if operation == "create" and existing.operation == "update":
                 existing.write({
@@ -278,6 +280,7 @@ class SyncQueue(models.Model):
             "sync_uuid": self.sync_uuid,
             "operation": "delete",
             "remote_id": remote_id or False,
+            "source": self.connection_id.name,
         }
 
     def _prepare_record_payload(self):
@@ -297,6 +300,7 @@ class SyncQueue(models.Model):
             "operation": self.operation,
             "values": values,
             "remote_id": remote_id or False,
+            "source": self.connection_id.name,
         }
 
     def _schedule_retry(self, error):

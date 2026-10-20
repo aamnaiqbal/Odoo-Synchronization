@@ -26,6 +26,11 @@ class SyncRegistry(models.Model):
     model_name = fields.Char(required=True, index=True)
     sync_key = fields.Char(required=True, index=True)
     remote_id = fields.Integer(required=True)
+    source = fields.Char(
+        index=True,
+        readonly=True,
+        help="Name of the local instance (its connection name) that first pushed this record.",
+    )
     active = fields.Boolean(default=True)
 
     _model_sync_key_unique = models.Constraint(
@@ -66,8 +71,11 @@ class SyncRegistry(models.Model):
         return registry.remote_id if registry else False
 
     @api.model
-    def apply(self, model_name, sync_uuid, operation, values=None, remote_id=None):
+    def apply(self, model_name, sync_uuid, operation, values=None, remote_id=None, source=None):
         """Create / update / delete one record pushed by the local Odoo.
+
+        `source` is the name of the pushing local instance, kept on the registry row
+        to trace where a record came from when several local instances push here.
 
         `remote_id` is the id this record already has on this server, as far as the
         local side knows it (the record came with the imported database, or was pushed
@@ -89,7 +97,7 @@ class SyncRegistry(models.Model):
         )
 
         if operation == "delete":
-            return self._apply_delete(registry, model_name, sync_uuid, remote_id)
+            return self._apply_delete(registry, model_name, remote_id)
 
         warnings = []
         values = self._resolve_relations(values or {}, warnings)
@@ -109,7 +117,7 @@ class SyncRegistry(models.Model):
             if values:
                 record.write(values)
             if not registry:
-                self._create_registry_row(model_name, sync_uuid, record.id)
+                self._create_registry_row(model_name, sync_uuid, record.id, source)
             return {
                 "success": True,
                 "remote_id": record.id,
@@ -118,7 +126,7 @@ class SyncRegistry(models.Model):
             }
 
         record = Model.create(values)
-        self._create_registry_row(model_name, sync_uuid, record.id)
+        self._create_registry_row(model_name, sync_uuid, record.id, source)
         return {
             "success": True,
             "remote_id": record.id,
@@ -127,22 +135,26 @@ class SyncRegistry(models.Model):
         }
 
     @api.model
-    def _create_registry_row(self, model_name, sync_uuid, remote_id):
+    def _create_registry_row(self, model_name, sync_uuid, remote_id, source=None):
         return self.create(
             {
                 "name": f"{model_name}:{sync_uuid}",
                 "model_name": model_name,
                 "sync_key": sync_uuid,
                 "remote_id": remote_id,
+                "source": source or False,
             }
         )
 
-    def _apply_delete(self, registry, model_name, sync_uuid, remote_id=None):
+    def _apply_delete(self, registry, model_name, remote_id=None):
         target = registry.remote_id if registry else remote_id
         if target:
             record = self.env[model_name].browse(int(target))
             if record.exists():
                 record.with_context(skip_sync=True).unlink()
+            # Several local instances may each have a row for the same remote record
+            # (an imported record gets its own sync_uuid on every instance): drop them all.
+            self.search([("model_name", "=", model_name), ("remote_id", "=", int(target))]).unlink()
         if registry:
             registry.unlink()
         return {"success": True, "remote_id": False, "operation": "delete"}

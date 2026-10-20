@@ -9,8 +9,27 @@
                 <field name="model_name"/>
                 <field name="sync_key"/>
                 <field name="remote_id"/>
+                <field name="source"/>
+                <field name="create_date"/>
                 <field name="active"/>
             </list>
+        </field>
+    </record>
+
+    <record id="view_sync_registry_search" model="ir.ui.view">
+        <field name="name">sync.registry.search</field>
+        <field name="model">sync.registry</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="model_name"/>
+                <field name="sync_key"/>
+                <field name="remote_id"/>
+                <field name="source"/>
+                <group>
+                    <filter name="group_source" string="Source" context="{'group_by': 'source'}"/>
+                    <filter name="group_model" string="Model" context="{'group_by': 'model_name'}"/>
+                </group>
+            </search>
         </field>
     </record>
 
