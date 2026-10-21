@@ -27,6 +27,10 @@ class SyncRecordMap(models.Model):
         help="write_date of the remote record when it was last synchronized. "
         "Will be used to detect conflicts once the synchronization is two-way."
     )
+    # Exact write_date (with microseconds) of the remote record when it was last pulled.
+    # A record fetched again with the same stamp (the pull re-reads a short overlap)
+    # is already up to date and is skipped.
+    remote_stamp = fields.Char(readonly=True)
     last_synced = fields.Datetime(default=fields.Datetime.now)
 
     _remote_uniq = models.Constraint(
@@ -61,10 +65,9 @@ class SyncRecordMap(models.Model):
         return False
 
     @api.model
-    def _get_local_id(self, connection, model, remote_id):
-        """Reverse of `_get_remote_id`. Not used by the one-way push; kept for the
-        future remote -> local direction."""
-        mapping = self.search(
+    def _get_mapping_by_remote(self, connection, model, remote_id):
+        """The mapping row of a remote record (empty if it has none)."""
+        return self.search(
             [
                 ("connection_id", "=", connection.id),
                 ("model", "=", model),
@@ -72,6 +75,19 @@ class SyncRecordMap(models.Model):
             ],
             limit=1,
         )
+
+    @api.model
+    def _get_local_id(self, connection, model, remote_id):
+        """Reverse of `_get_remote_id`: which local record is this remote record?
+        Used by the pull (remote -> local).
+
+        1. a mapping row            -> record pulled earlier
+        2. id <= baseline of model  -> record that came with the imported database,
+                                       it has the same id locally
+        3. otherwise False          -> a record this database has not seen yet.
+        A record above the baseline is never matched by id: the local sequence has
+        moved on and that id may belong to a different local record."""
+        mapping = self._get_mapping_by_remote(connection, model, remote_id)
         local_id = mapping.local_id if mapping else (
             remote_id if remote_id <= connection._get_baseline_max_id(model) else False
         )
@@ -80,7 +96,7 @@ class SyncRecordMap(models.Model):
         return False
 
     @api.model
-    def _set(self, connection, model, local_id, remote_id, remote_write_date=False):
+    def _set(self, connection, model, local_id, remote_id, remote_write_date=False, remote_stamp=False):
         """Create or update the mapping of one record."""
         base = [("connection_id", "=", connection.id), ("model", "=", model)]
         mapping = self.search(base + [("remote_id", "=", remote_id)], limit=1) or self.search(
@@ -92,6 +108,7 @@ class SyncRecordMap(models.Model):
             "local_id": local_id,
             "remote_id": remote_id,
             "remote_write_date": remote_write_date or False,
+            "remote_stamp": remote_stamp or False,
             "last_synced": fields.Datetime.now(),
         }
         if mapping:

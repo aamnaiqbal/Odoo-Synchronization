@@ -198,6 +198,23 @@ class SyncConnection(models.Model):
             },
         }
 
+    def action_pull_now(self):
+        """Fetch the changes of every pulled model now (the cron does it regularly)."""
+        self.ensure_one()
+        return self.env["sync.pull.config"]._pull_manually(self)
+
+    def action_load_suggested_models(self):
+        """Create the pull configuration of the usual master data models."""
+        self.ensure_one()
+        created = self.env["sync.pull.config"]._load_suggested_models()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Pull Models"),
+            "res_model": "sync.pull.config",
+            "view_mode": "list,form",
+            "context": {"suggested_created": created},
+        }
+
     def action_view_queue(self):
         self.ensure_one()
         return {

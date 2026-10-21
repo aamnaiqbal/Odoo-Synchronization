@@ -3,5 +3,5 @@ access_sync_registry_user,sync.registry user,model_sync_registry,base.group_user
 access_sync_registry_manager,sync.registry manager,model_sync_registry,base.group_system,1,1,1,1
 access_sync_connection_admin,sync.connection admin,model_sync_connection,base.group_system,1,1,1,1
 access_sync_record_map_admin,sync.record.map admin,model_sync_record_map,base.group_system,1,1,1,1
-access_sync_pull_cursor_admin,sync.pull.cursor admin,model_sync_pull_cursor,base.group_system,1,1,1,1
 access_sync_queue_manager,sync.queue manager,model_sync_queue,base.group_system,1,1,1,1
+access_sync_pull_config_admin,sync.pull.config admin,model_sync_pull_config,base.group_system,1,1,1,1

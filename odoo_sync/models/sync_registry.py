@@ -1,13 +1,17 @@
 import logging
+from datetime import datetime
 
 from odoo import _, api, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 
 _logger = logging.getLogger(__name__)
 
 
 class SyncRegistry(models.Model):
-    """REMOTE side of the push.
+    """REMOTE side of the synchronization.
+
+    * push (local -> remote): `apply` and `get_remote_id`
+    * fetch (remote -> local): `fetch_changes` and `fetch_ids`
 
     Public methods are callable through /json/2/sync.registry/<method>.
     Methods starting with an underscore are NOT exposed by JSON-2.
@@ -239,4 +243,181 @@ class SyncRegistry(models.Model):
                 continue
 
             result[field_name] = value
+        return result
+
+    # ------------------------------------------------------------------
+    # API used by the local side: fetch (remote -> local)
+    # ------------------------------------------------------------------
+    # Never sent to the local side.
+    _FETCH_SKIPPED_FIELDS = frozenset({
+        "id",
+        "create_uid",
+        "create_date",
+        "write_uid",
+        "write_date",
+        "__last_update",
+        "sync_uuid",
+        "parent_path",
+        "message_main_attachment_id",
+    })
+    # Field types that are sent (binary / image only when asked for). one2many are
+    # left out: the records on the "many" side are fetched as models of their own.
+    _FETCH_FIELD_TYPES = (
+        "char", "text", "html", "selection", "boolean", "integer", "float", "monetary",
+        "date", "datetime", "many2one", "many2many",
+    )
+
+    @api.model
+    def fetch_changes(
+        self, model_name, since_write_date=False, since_id=0, domain=None,
+        limit=200, include_binary=False, excluded_fields=None,
+    ):
+        """One page of the records of `model_name` written after a cursor.
+
+        The cursor is the pair (write_date, id) of the last record the caller has
+        applied; `since_write_date` is that write_date as text WITH its microseconds
+        (all the records of one transaction share the same write_date, the id breaks
+        the tie). Archived records are included, so that an archiving reaches the
+        local side.
+
+        Returns {"records": [...], "has_more": bool}. Each record is
+        {"id", "write_date", "xmlid", "values": {...}} where relations are sent as
+        keys {"model", "remote_id", "xmlid"}; a product.template also carries the ids
+        of its variants (`variant_ids`)."""
+        Model = self._get_sync_model(model_name).with_context(active_test=False)
+        limit = max(1, min(int(limit or 200), 1000))
+
+        terms = list(domain or [])
+        if since_write_date:
+            # A datetime object (not text) keeps the microseconds in the comparison.
+            since = datetime.fromisoformat(since_write_date)
+            terms += [
+                "|", ("write_date", ">", since),
+                "&", ("write_date", "=", since), ("id", ">", int(since_id or 0)),
+            ]
+
+        records = Model.search(terms, order="write_date asc, id asc", limit=limit + 1)
+        has_more = len(records) > limit
+        records = records[:limit]
+        return {
+            "records": self._serialize_records(records, include_binary, excluded_fields or []),
+            "has_more": has_more,
+        }
+
+    @api.model
+    def fetch_ids(self, model_name, domain=None):
+        """Ids of every record of `model_name` that matches the domain (archived
+        ones included). The local side compares them with its own records to find
+        out which ones were deleted here."""
+        Model = self._get_sync_model(model_name).with_context(active_test=False)
+        return Model.search(list(domain or [])).ids
+
+    @api.model
+    def _get_fetch_fields(self, records, include_binary=False, excluded_fields=()):
+        """Names of the fields of `records` that are sent to the local side."""
+        types = self._FETCH_FIELD_TYPES + (("binary", "image") if include_binary else ())
+        skipped = self._FETCH_SKIPPED_FIELDS | set(excluded_fields or ())
+        names = []
+        for name, field in records._fields.items():
+            if name in skipped or not field.store or field.type not in types:
+                continue
+            # A computed field nobody can edit is computed again by the local Odoo.
+            # An editable one (compute + store + readonly=False) holds a user choice.
+            if (field.compute or field.related) and field.readonly:
+                continue
+            names.append(name)
+        return names
+
+    @api.model
+    def _read_fetch_fields(self, records, names):
+        """records.read() that leaves out the fields the API user may not read."""
+        try:
+            return names, records.read(names + ["write_date"], load=None)
+        except AccessError:
+            readable = []
+            for name in names:
+                try:
+                    records[:1].read([name], load=None)
+                except AccessError:
+                    continue
+                readable.append(name)
+            return readable, records.read(readable + ["write_date"], load=None)
+
+    @api.model
+    def _get_xmlid_map(self, model_name, ids):
+        """{res_id: "module.name"} of the standard data among `ids` (not __export__)."""
+        if not ids:
+            return {}
+        data = self.env["ir.model.data"].sudo().search_read(
+            [("model", "=", model_name), ("res_id", "in", list(ids)), ("module", "!=", "__export__")],
+            ["module", "name", "res_id"],
+        )
+        result = {}
+        for item in data:
+            result.setdefault(item["res_id"], f"{item['module']}.{item['name']}")
+        return result
+
+    @api.model
+    def _serialize_records(self, records, include_binary=False, excluded_fields=()):
+        if not records:
+            return []
+        names = self._get_fetch_fields(records, include_binary, excluded_fields)
+        names, rows = self._read_fetch_fields(records, names)
+        rows_by_id = {row["id"]: row for row in rows}
+
+        relation_keys = []      # every relation key, to attach the xmlids in one query per model
+        result = []
+        for record in records:
+            row = rows_by_id[record.id]
+            values = {}
+            for name in names:
+                field = records._fields[name]
+                value = row.get(name)
+                if field.type == "many2one":
+                    if value:
+                        key = {"model": field.comodel_name, "remote_id": value}
+                        relation_keys.append(key)
+                        values[name] = key
+                    else:
+                        values[name] = False
+                elif field.type == "many2many":
+                    keys = [{"model": field.comodel_name, "remote_id": rid} for rid in value or []]
+                    relation_keys.extend(keys)
+                    values[name] = keys
+                elif field.type == "datetime":
+                    values[name] = fields.Datetime.to_string(value) if value else False
+                elif field.type == "date":
+                    values[name] = fields.Date.to_string(value) if value else False
+                elif field.type in ("binary", "image"):
+                    values[name] = value.decode() if isinstance(value, bytes) else (value or False)
+                else:
+                    values[name] = value
+
+            write_date = row["write_date"]
+            if not isinstance(write_date, datetime):
+                write_date = fields.Datetime.to_datetime(write_date)
+            item = {
+                "id": record.id,
+                # exact text, microseconds included: it is the pull cursor
+                "write_date": write_date.isoformat(sep=" "),
+                "values": values,
+            }
+            if record._name == "product.template":
+                # Lets the local side pair the variants (only one per template is supported).
+                item["variant_ids"] = record.with_context(active_test=False).product_variant_ids.ids
+            result.append(item)
+
+        # xmlids: of the records themselves and of everything they point to
+        ids_by_model = {}
+        for key in relation_keys:
+            ids_by_model.setdefault(key["model"], set()).add(key["remote_id"])
+        xmlids = {model: self._get_xmlid_map(model, ids) for model, ids in ids_by_model.items()}
+        for key in relation_keys:
+            xmlid = xmlids[key["model"]].get(key["remote_id"])
+            if xmlid:
+                key["xmlid"] = xmlid
+        own_xmlids = self._get_xmlid_map(records._name, records.ids)
+        for item in result:
+            if own_xmlids.get(item["id"]):
+                item["xmlid"] = own_xmlids[item["id"]]
         return result

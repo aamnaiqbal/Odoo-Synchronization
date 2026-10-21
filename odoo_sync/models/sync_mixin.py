@@ -49,23 +49,6 @@ class SyncMixin(models.AbstractModel):
         "date", "datetime", "many2one", "many2many",
     )
 
-    # ------------------------------------------------------------------
-    # Pull (remote -> local), see sync.connection._pull
-    # ------------------------------------------------------------------
-    # A model opts in with `_sync_pull = True` (it must also be `_sync_enabled`).
-    _sync_pull = False
-    # Pull order, lower first. Dependencies are also pulled on demand, so this is only
-    # an optimisation; it does not have to be exact.
-    _sync_pull_sequence = 10
-    # False for models that cannot be created from their own data (product.product
-    # is created together with its product.template).
-    _sync_pull_allow_create = True
-
-    def _sync_pull_locate(self, connection, data, state):
-        """Hook: find the local record of a pulled remote record that the generic lookup
-        (map / same id / xmlid / sync_uuid) did not find. Return a recordset or empty."""
-        return self.browse()
-
     sync_uuid = fields.Char(
         string="Sync UUID",
         copy=False,
@@ -277,9 +260,6 @@ class SyncMixin(models.AbstractModel):
         """The related record is neither on the remote nor in the queue yet: queue it
         with a higher priority, the job that needs it is retried by the queue."""
         if not getattr(record, "_sync_enabled", False):
-            return
-        if not record._sync_operations:
-            # Owned by the remote (pull-only): create it there, it is never pushed.
             return
         Queue = self.env["sync.queue"].sudo()
         if Queue.search_count(

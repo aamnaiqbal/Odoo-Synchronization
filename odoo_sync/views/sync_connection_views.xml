@@ -30,6 +30,17 @@
                         class="btn-primary"
                     />
                     <button
+                        name="action_pull_now"
+                        type="object"
+                        string="Pull Now"
+                        invisible="not baseline_date"
+                    />
+                    <button
+                        name="action_load_suggested_models"
+                        type="object"
+                        string="Load Suggested Pull Models"
+                    />
+                    <button
                         name="action_capture_baseline"
                         type="object"
                         string="Capture Baseline"

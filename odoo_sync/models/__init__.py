@@ -2,12 +2,9 @@ from . import sync_connection
 from . import sync_registry
 from . import sync_record_map
 from . import sync_queue
-from . import sync_pull_cursor
-from . import sync_registry_pull
-from . import sync_connection_pull
+from . import sync_pull_config
 from . import sync_mixin
 from . import res_partner
 from . import sale_order
-from . import account_payment_term
-from . import product_template
 from . import account_move
+
