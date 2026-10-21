@@ -16,5 +16,16 @@
             <field name="interval_type">minutes</field>
             <field name="active">True</field>
         </record>
+
+        <!-- Remote -> local pull. Does nothing for a connection without "Pull From Remote". -->
+        <record id="ir_cron_sync_pull_worker" model="ir.cron">
+            <field name="name">Synchronization Pull Worker</field>
+            <field name="model_id" ref="model_sync_connection"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_pull()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
     </data>
 </odoo>

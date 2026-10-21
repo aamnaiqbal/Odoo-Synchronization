@@ -1,6 +1,6 @@
 {
     "name": "Odoo Synchronization",
-    "version": "19.0.2.0.0",
+    "version": "19.0.2.1.0",
     "category": "Technical",
     "summary": "One-way push of locally created records to a remote Odoo "
     "(local runs on a copy of the remote database)",
@@ -15,6 +15,7 @@
         "security/ir.model.access.csv",
         "data/ir_cron_data.xml",
         "views/sync_connection_views.xml",
+        "views/sync_pull_views.xml",
         "views/sync_queue_views.xml",
         "views/sync_record_map_views.xml",
         "views/sync_registry_views.xml",

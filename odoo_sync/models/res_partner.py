@@ -16,6 +16,7 @@ class ResPartner(models.Model):
     ]
 
     _sync_enabled = True
+    # Push-only for now. Pulling partners needs a conflict policy (both sides edit them).
 
 class ResPartnerCategory(models.Model):
     
@@ -25,3 +26,7 @@ class ResPartnerCategory(models.Model):
     ]
 
     _sync_enabled = True
+    # Master data owned by the remote: pulled, never pushed. Create/edit it on the remote only.
+    _sync_operations = ()
+    _sync_pull = True
+    _sync_pull_sequence = 5
