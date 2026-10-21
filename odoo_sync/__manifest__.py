@@ -7,6 +7,8 @@
     "depends": [
         "base",
         "web",
+        "sale",
+        "purchase"
     ],
     "data": [
         "security/ir.model.access.csv",
