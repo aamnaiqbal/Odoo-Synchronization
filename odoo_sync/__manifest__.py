@@ -8,7 +8,8 @@
         "base",
         "web",
         "sale",
-        "purchase"
+        "purchase",
+        "stock"
     ],
     "data": [
         "security/ir.model.access.csv",

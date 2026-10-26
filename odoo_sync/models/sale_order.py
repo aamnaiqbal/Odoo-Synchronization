@@ -19,3 +19,22 @@ class SaleOrderLine(models.Model):
     ]
 
     _sync_enabled = True
+
+
+class StockMove(models.Model):
+    
+    _inherit = [
+        "stock.move",
+        "sync.mixin",
+    ]
+
+    _sync_enabled = True
+
+class StockPicking(models.Model):
+    
+    _inherit = [
+        "stock.picking",
+        "sync.mixin",
+    ]
+
+    _sync_enabled = True
